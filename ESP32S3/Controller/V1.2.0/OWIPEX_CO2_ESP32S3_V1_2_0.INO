@@ -13,8 +13,8 @@ constexpr char WIFI_SSID[] = "FamMorbius";
 constexpr char WIFI_PASSWORD[] = "45927194145938492747";
 //constexpr char WIFI_SSID[] = "WiFi-Repeater2";
 //constexpr char WIFI_PASSWORD[] = "111906111906";
-constexpr char THINGSBOARD_SERVER[] = "46.101.195.97";
-constexpr char TOKEN[] = "xN6NIu7y5ayOXn9Uff1f";
+constexpr char THINGSBOARD_SERVER[] = "portal.owipex.io";
+constexpr char TOKEN[] = "8gvD51Dl38jl12mpDGdf";
 constexpr uint16_t THINGSBOARD_PORT = 1883U;
 constexpr uint32_t MAX_MESSAGE_SIZE = 1024U;
 
