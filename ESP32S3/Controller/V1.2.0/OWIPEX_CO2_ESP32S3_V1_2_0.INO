@@ -9,32 +9,42 @@
 #include "I2CPressSens.h"
 #include <Arduino.h>
 
-// Altes Board
-#define LED_PIN_R 37
-#define LED_PIN_G 36
-#define LED_PIN_B 35
-//
-/* Neues Board
+/* Altes Board
 #define LED_PIN_R 37
 #define LED_PIN_G 36
 #define LED_PIN_B 35
 */
 
 
+// Neues Board
+#define LED_PIN_R 37
+#define LED_PIN_G 36
+#define LED_PIN_B 35
+//
+
+
 //constexpr char WIFI_SSID[] = "FamMorbius";
 //constexpr char WIFI_PASSWORD[] = "45927194145938492747";
-constexpr char WIFI_SSID[] = "WB-X-GATE_0008";
+constexpr char WIFI_SSID[] = "WB-NET_924_0007";
 constexpr char WIFI_PASSWORD[] = "OWiP3X12";
 constexpr char THINGSBOARD_SERVER[] = "192.168.100.100";
-constexpr char TOKEN[] = "K4ryCyROG5CNAdEYTylf";
+constexpr char TOKEN[] = "0kMbTKCfiFHZo05hsM5b";
 constexpr uint16_t THINGSBOARD_PORT = 1883U;                                                                                                              
 constexpr uint32_t MAX_MESSAGE_SIZE = 1024U;
 
 // Setzen Sie Ihre statischen IP-Adresse Informationen hier
+/* Wenn Master Gerät
+// Setzen Sie Ihre statischen IP-Adresse Informationen hier
+IPAddress local_IP(192, 168, 100, 99); // ESP32 statische IP
+IPAddress gateway(192, 168, 100, 1); // Gateway-Adresse (normalerweise der Router)
+IPAddress subnet(255, 255, 255, 0); // Subnetzmaske
+*/
+//Wenn Slave
 IPAddress local_IP(192, 168, 100, 99); // ESP32 statische IP
 IPAddress gateway(192, 168, 100, 1); // Gateway-Adresse (normalerweise der Router)
 IPAddress subnet(255, 255, 255, 0); // Subnetzmaske
 //
+
 
 // Globale Variablen
 float           temperature1        = 0.0; // in °C
@@ -45,6 +55,10 @@ float           mass                = 0.0; // berechnete Masse
 bool            isBackupController  = false; //Ist ein Backup Modul
 float           swPressMaster   = 0.0; //Value for lowest pressure of master before Switching.
 bool            gasEmptySig     = false;
+bool            gasValve        = false;
+bool            co2SlaveRelaisSig  =false;
+bool            co2SlaveHeaterSig  =false;
+ 
 
 volatile float  phSensTemp      = 0.0;
 volatile int    gasBottleSize = 10;
@@ -70,33 +84,31 @@ constexpr char IS_BACKUP_CONTROLLER[] = "isBackupController"; //Module is a MAST
 constexpr char SWITCH_PRESS_MASTER[] = "swPressMaster"; //Value for lowest pressure of master before Switching.
 constexpr char PH_S_TEMP_ATTR[] = "phSensTemp"; //Value from PH Sensor Temp Sensor
 constexpr char GAS_BOTTEL_ATTR[] = "gasBottleSize"; // Gas Bottle Size
-constexpr char IS_EMPTY_MESSAGE[] = "isEmptyMessage"; // Message that gasbottle is empty from Master
 
 
 
 
 
-//alte Platine
+
+/*alte Platine
 constexpr int CO2_RELAY_PIN = 12;
 constexpr int HEATING_RELAY_PIN = 13;
 constexpr int PUMP_RELAY_PIN = 14;
+*/
 
-
-/*neue Platine
+//neue Platine
 constexpr int CO2_RELAY_PIN = 10;
 constexpr int HEATING_RELAY_PIN = 11;
 constexpr int PUMP_RELAY_PIN = 12;
-*/
-constexpr std::array<const char *, 8U> SHARED_ATTRIBUTES_LIST = {
+//
+constexpr std::array<const char *, 7U> SHARED_ATTRIBUTES_LIST = {
     CO2_RELAY_ATTR,
     HEATING_RELAY_ATTR,
     PUMP_RELAY_ATTR,
     IS_BACKUP_CONTROLLER,
     SWITCH_PRESS_MASTER,
     PH_S_TEMP_ATTR,
-    GAS_BOTTEL_ATTR,
-    IS_EMPTY_MESSAGE
-
+    GAS_BOTTEL_ATTR
 };
 
 
@@ -152,23 +164,9 @@ void processSharedAttributes(const Shared_Attribute_Data &data) {
         else if (strcmp(it->key().c_str(), "gasBottleSize") == 0) {
             gasBottleSize = it->value().as<int>();
         }
-
-        if (!isBackupController && pressureBar1 <= swPressMaster){
-          gasEmptySig     = true;
-        }
-        if (!isBackupController && pressureBar1 >= swPressMaster){
-          gasEmptySig     = false;
-        }
-
-        if (!isEmptyMessage && !isBackupController){
-          if (strcmp(it->key().c_str(), CO2_RELAY_ATTR) == 0) {
+        else if (strcmp(it->key().c_str(), CO2_RELAY_ATTR) == 0) {
             digitalWrite(CO2_RELAY_PIN, it->value().as<bool>() ? HIGH : LOW);
-            }
-        }
-        if (isEmptyMessage && isBackupController){
-          if (strcmp(it->key().c_str(), CO2_RELAY_ATTR) == 0) {
-            digitalWrite(CO2_RELAY_PIN, it->value().as<bool>() ? HIGH : LOW);
-            }
+            //gasValve =  it->value().as<bool>();
         }
         // Verarbeitung für andere Shared Attributes
         else if (strcmp(it->key().c_str(), HEATING_RELAY_ATTR) == 0) {
@@ -237,7 +235,6 @@ void readAndProcessSensors() {
     float temperatureHigh = pressSensor.readTemperatureHigh();
     float temperatureLow = pressSensor.readTemperatureLow();
     
-
     temperature1 = temperatureHigh; // in °C
     temperature2 = temperatureLow; // in °C
     pressureBar1 = pressureHigh; // Umrechnung in Bar
@@ -245,6 +242,25 @@ void readAndProcessSensors() {
 }
 
 void loop() {
+
+  if (pressureBar1 <= swPressMaster){
+    gasEmptySig     = true;
+    co2SlaveRelaisSig = true;
+    co2SlaveHeaterSig = true; 
+    }
+  else {
+    gasEmptySig     = false;
+    co2SlaveRelaisSig = false;
+    co2SlaveHeaterSig = false; 
+  }
+
+  if (!gasEmptySig){
+      digitalWrite(CO2_RELAY_PIN, gasValve);
+    }
+  else {
+      digitalWrite(CO2_RELAY_PIN, false);
+  }
+
 
 
   if (!tb.connected()) {
@@ -300,18 +316,14 @@ void loop() {
         tb.sendTelemetryData("L_press", pressureBar2);
         tb.sendTelemetryData("L_press_temp", temperature2);
         tb.sendTelemetryData("CO2_MasseKG", mass);
-        //Master Slave Vars
-        tb.sendTelemetryData("IS_BACKUP_CONTROLLER", isBackupController);
-        if (!isBackupController){
-          tb.sendTelemetryData("gasEmptySig", gasEmptySig);
-        }
-        
+        tb.sendTelemetryData("gasEmptySig", gasEmptySig);
+        tb.sendTelemetryData("co2SlaveRelaisSig", co2SlaveRelaisSig);
+        tb.sendTelemetryData("co2SlaveHeaterSig", co2SlaveHeaterSig);
     }
 
     // Senden der Telemetriedaten SLOW
     if (millis() - previousDataSend_slow > telemetrySendInterval_slow) {
         previousDataSend_slow = millis();
-        tb.sendTelemetryData("temperature", random(10, 20));
         tb.sendAttributeData("rssi", WiFi.RSSI());
         tb.sendAttributeData("channel", WiFi.channel());
         tb.sendAttributeData("bssid", WiFi.BSSIDstr().c_str());
