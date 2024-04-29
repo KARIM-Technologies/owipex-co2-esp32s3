@@ -6,8 +6,16 @@
 //#define THINGSBOARD_ENABLE_STREAM_UTILS 1
 #include <Arduino_MQTT_Client.h>
 #include <ThingsBoard.h>
-#include "I2CPressSens.h"
 #include <Arduino.h>
+
+#define DEVICE_ADDRESS_1 0x6D // Die I2C-Adresse des ersten Sensors
+#define DEVICE_ADDRESS_2 0x6D // Die I2C-Adresse des zweiten Sensors (angenommen, sie ist anders)
+#define PRESSURE_RANGE_1 2000.0 // Druckbereich des ersten Sensors in kPa (0-200 bar, umgerechnet in kPa)
+#define PRESSURE_RANGE_2 100.0  // Druckbereich des zweiten Sensors in kPa (0-10 bar, umgerechnet in kPa)
+
+TwoWire Sensor1Wire = TwoWire(0);
+TwoWire Sensor2Wire = TwoWire(1);
+
 
 /* Altes Board
 #define LED_PIN_R 37
@@ -22,28 +30,42 @@
 #define LED_PIN_B 35
 //
 
+//Auswahl Netzwerk
+//Zuhause SAK
+constexpr char WIFI_SSID[] = "FamMorbius";
+constexpr char WIFI_PASSWORD[] = "45927194145938492747";
 
-//constexpr char WIFI_SSID[] = "FamMorbius";
-//constexpr char WIFI_PASSWORD[] = "45927194145938492747";
-constexpr char WIFI_SSID[] = "WB-NET_924_0007";
-constexpr char WIFI_PASSWORD[] = "OWiP3X12";
+//Holzruetti
+//constexpr char WIFI_SSID[] = "WB-NET_924_Werkstatt";
+//constexpr char WIFI_PASSWORD[] = "OWiP3X12";
+
+//Aktiv
+//constexpr char WIFI_SSID[] = "WB-NET_924_0021"; //WICHTIG àNDERN
+//constexpr char WIFI_PASSWORD[] = "OWiP3X12";
+
+
+
 constexpr char THINGSBOARD_SERVER[] = "192.168.100.100";
-constexpr char TOKEN[] = "0kMbTKCfiFHZo05hsM5b";
+constexpr char TOKEN[] = "WbXcO29240021";  //WICHTIG àNDERN
 constexpr uint16_t THINGSBOARD_PORT = 1883U;                                                                                                              
 constexpr uint32_t MAX_MESSAGE_SIZE = 1024U;
 
+
+
 // Setzen Sie Ihre statischen IP-Adresse Informationen hier
-/* Wenn Master Gerät
+// Wenn Master Gerät
 // Setzen Sie Ihre statischen IP-Adresse Informationen hier
-IPAddress local_IP(192, 168, 100, 99); // ESP32 statische IP
-IPAddress gateway(192, 168, 100, 1); // Gateway-Adresse (normalerweise der Router)
-IPAddress subnet(255, 255, 255, 0); // Subnetzmaske
-*/
-//Wenn Slave
 IPAddress local_IP(192, 168, 100, 99); // ESP32 statische IP
 IPAddress gateway(192, 168, 100, 1); // Gateway-Adresse (normalerweise der Router)
 IPAddress subnet(255, 255, 255, 0); // Subnetzmaske
 //
+
+
+/*Wenn Slave
+IPAddress local_IP(192, 168, 100, 99); // ESP32 statische IP
+IPAddress gateway(192, 168, 100, 1); // Gateway-Adresse (normalerweise der Router)
+IPAddress subnet(255, 255, 255, 0); // Subnetzmaske
+*/
 
 
 // Globale Variablen
@@ -53,24 +75,18 @@ float           pressureBar1        = 0.0; // Umrechnung in Bar
 float           pressureBar2        = 0.0; // Umrechnung in Bar
 float           mass                = 0.0; // berechnete Masse
 bool            isBackupController  = false; //Ist ein Backup Modul
-float           swPressMaster   = 0.0; //Value for lowest pressure of master before Switching.
+float           minPressure   = 5.0; //Value for lowest pressure of master before Switching.
 bool            gasEmptySig     = false;
 bool            gasValve        = false;
-bool            co2SlaveRelaisSig  =false;
-bool            co2SlaveHeaterSig  =false;
+
  
 
 volatile float  phSensTemp      = 0.0;
 volatile int    gasBottleSize = 10;
 volatile bool   isEmptyMessage = false;
 
-
-
-
-
 bool  serialDebug     = false;
 
-I2CPressSens pressSensor;
 WiFiClient wifiClient;
 Arduino_MQTT_Client mqttClient(wifiClient); // Verwenden Sie Arduino_MQTT_Client mit WiFiClient
 ThingsBoard tb(mqttClient, MAX_MESSAGE_SIZE); // Passen Sie ThingsBoard an, um mqttClient zu verwenden
@@ -81,7 +97,7 @@ constexpr char CO2_RELAY_ATTR[] = "co2Relay";
 constexpr char HEATING_RELAY_ATTR[] = "heatingRelay";
 constexpr char PUMP_RELAY_ATTR[] = "pumpRelais";
 constexpr char IS_BACKUP_CONTROLLER[] = "isBackupController"; //Module is a MASTER (yes/no)
-constexpr char SWITCH_PRESS_MASTER[] = "swPressMaster"; //Value for lowest pressure of master before Switching.
+constexpr char SWITCH_PRESS_MASTER[] = "minPressure"; //Value for lowest pressure of master before Switching.
 constexpr char PH_S_TEMP_ATTR[] = "phSensTemp"; //Value from PH Sensor Temp Sensor
 constexpr char GAS_BOTTEL_ATTR[] = "gasBottleSize"; // Gas Bottle Size
 
@@ -124,8 +140,9 @@ bool subscribed = false;
 bool heatingRelayControlledByTB = false; // Globale Variable
 
 void setup() {
-  Serial.begin(115200);
-  pressSensor.begin(); // Initialisiert die I2C-Busse
+  Sensor1Wire.begin(5, 4); // Setzen Sie hier die korrekten Pins für den I2C-Bus des ersten Sensors
+  Sensor2Wire.begin(7, 6); // Setzen Sie hier die korrekten Pins für den I2C-Bus des zweiten Sensors
+  Serial.begin(9600);
   pinMode(CO2_RELAY_PIN, OUTPUT);
   pinMode(HEATING_RELAY_PIN, OUTPUT);
   digitalWrite(CO2_RELAY_PIN, false);
@@ -152,9 +169,9 @@ void processSharedAttributes(const Shared_Attribute_Data &data) {
             isBackupController = it->value().as<bool>();
         }
 
-        // Aktualisieren Sie swPressMaster basierend auf dem Shared Attribute
-        else if (strcmp(it->key().c_str(), "swPressMaster") == 0) {
-            swPressMaster = it->value().as<float>();
+        // Aktualisieren Sie minPressure basierend auf dem Shared Attribute
+        else if (strcmp(it->key().c_str(), "minPressure") == 0) {
+            minPressure = it->value().as<float>();
         }
         // Aktualisieren Sie phSensTemp basierend auf dem Shared Attribute
         else if (strcmp(it->key().c_str(), "phSensTemp") == 0) {
@@ -224,44 +241,25 @@ void reconnect() {
 }
 
 
-
-void readAndProcessSensors() {
-    // Lesen der Sensorwerte
-    float pressureHigh = pressSensor.readPressureHigh() / 100.0; // Druck aus Sensor in Pascal umgerechnet auf Bar
-    float pressureLow = pressSensor.readPressureLow() / 100.0;   // Druck aus Sensor in Pascal umgerechnet auf Bar
-    float temperatureCelsius = phSensTemp; // Externe Temperatur in °C vom PH Sensor
-    float volumeLiters = 10.0; // Volumen in Litern
-    float mass = pressSensor.calculateMass(temperatureCelsius, volumeLiters);
-    float temperatureHigh = pressSensor.readTemperatureHigh();
-    float temperatureLow = pressSensor.readTemperatureLow();
-    
-    temperature1 = temperatureHigh; // in °C
-    temperature2 = temperatureLow; // in °C
-    pressureBar1 = pressureHigh; // Umrechnung in Bar
-    pressureBar2 = pressureLow; // Umrechnung in Bar
-}
-
 void loop() {
+  float pressure1 = readPressure(Sensor1Wire, DEVICE_ADDRESS_1, PRESSURE_RANGE_1);
+  float temperature1 = readTemperature(Sensor1Wire, DEVICE_ADDRESS_1);
+  float pressure2 = readPressure(Sensor2Wire, DEVICE_ADDRESS_2, PRESSURE_RANGE_2);
+  float temperature2 = readTemperature(Sensor2Wire, DEVICE_ADDRESS_2);
+  pressureBar1 = pressure1 / 10;
+  pressureBar2 = pressure2 / 10;
 
-  if (pressureBar1 <= swPressMaster){
+
+  if (pressureBar1 <= minPressure){
     gasEmptySig     = true;
-    co2SlaveRelaisSig = true;
-    co2SlaveHeaterSig = true; 
-    }
-  else {
-    gasEmptySig     = false;
-    co2SlaveRelaisSig = false;
-    co2SlaveHeaterSig = false; 
+    Serial.println("GasEmpty");
+    Serial.println(minPressure);
   }
-
-  if (!gasEmptySig){
-      digitalWrite(CO2_RELAY_PIN, gasValve);
-    }
   else {
-      digitalWrite(CO2_RELAY_PIN, false);
+    gasEmptySig     = false; 
+    Serial.println("GasNotEmpty");
+    Serial.println(minPressure);
   }
-
-
 
   if (!tb.connected()) {
     if (tb.connect(THINGSBOARD_SERVER, TOKEN, THINGSBOARD_PORT)) {
@@ -294,15 +292,10 @@ void loop() {
       digitalWrite(LED_PIN_G, false);
       digitalWrite(LED_PIN_R, true);
     }
-    
-    //reconnect(); // Überprüft und stellt die Verbindung bei Bedarf wieder her
 
-    // Lesen der Sensorwerte
-    readAndProcessSensors();
-
-    if (temperature2 < 25.0 && !heatingRelayControlledByTB) {
+    if (temperature2 < 35.0 && !heatingRelayControlledByTB) {
         digitalWrite(HEATING_RELAY_PIN, HIGH); // Heizer einschalten
-    } else if (temperature2 >= 25.0 && !heatingRelayControlledByTB) {
+    } else if (temperature2 >= 35.0 && !heatingRelayControlledByTB) {
         digitalWrite(HEATING_RELAY_PIN, LOW); // Heizer ausschalten
     }
 
@@ -316,9 +309,10 @@ void loop() {
         tb.sendTelemetryData("L_press", pressureBar2);
         tb.sendTelemetryData("L_press_temp", temperature2);
         tb.sendTelemetryData("CO2_MasseKG", mass);
-        tb.sendTelemetryData("gasEmptySig", gasEmptySig);
-        tb.sendTelemetryData("co2SlaveRelaisSig", co2SlaveRelaisSig);
-        tb.sendTelemetryData("co2SlaveHeaterSig", co2SlaveHeaterSig);
+        tb.sendTelemetryData("isBackupControllerSig", isBackupController);
+        if (isBackupController == false){
+          tb.sendTelemetryData("gasEmptySig", gasEmptySig);
+        }
     }
 
     // Senden der Telemetriedaten SLOW
@@ -330,24 +324,61 @@ void loop() {
         tb.sendAttributeData("localIp", WiFi.localIP().toString().c_str());
         tb.sendAttributeData("ssid", WiFi.SSID().c_str());
 
+
         //DEBUG
         if (serialDebug == false){
-          Serial.print("Temperatur 1: ");
-          Serial.println(temperature1);
-          Serial.print("Temperatur 2: ");
-          Serial.println(temperature2);
-          Serial.print("Druck 1 (Bar): ");
-          Serial.println(pressureBar1);
-          Serial.print("Druck 2 (Bar): ");
-          Serial.println(pressureBar2);
-          Serial.print("IS_BACKUP_CONTROLLER): ");
-          Serial.println(isBackupController);
-          Serial.print("Druck am Master): ");
-          Serial.print("Midestdruck Master bevore Slave active): ");
-          Serial.println(swPressMaster);
+          Serial.print("Sensor 1 Druck: ");
+          Serial.print(pressure1);
+          Serial.println(" kPa");
+
+          Serial.print("Sensor 1 Temperatur: ");
+          Serial.print(temperature1);
+          Serial.println(" °C");
+
+          Serial.print("Sensor 2 Druck: ");
+          Serial.print(pressure2);
+          Serial.println(" kPa");
+
+          Serial.print("Sensor 2 Temperatur: ");
+          Serial.print(temperature2);
+          Serial.println(" °C");
+
+          Serial.println("-------");
         }
 
     }
 
+
   tb.loop();
+}
+
+  float readPressure(TwoWire &wire, uint8_t deviceAddress, float pressureRange) {
+  wire.beginTransmission(deviceAddress);
+  wire.write(0x06);
+  wire.endTransmission(false);
+  wire.requestFrom(deviceAddress, 3);
+
+  if (wire.available() == 3) {
+    long dat = wire.read() << 16 | wire.read() << 8 | wire.read();
+    if (dat & 0x800000) dat -= 16777216;
+    float fadc = dat;
+    float adc = 3.3 * fadc / 8388608.0;
+    return pressureRange * (adc - 0.5) / 2.0;
+  }
+  return NAN; // Gibt Not-a-Number zurück, wenn keine Daten verfügbar sind
+}
+
+float readTemperature(TwoWire &wire, uint8_t deviceAddress) {
+  wire.beginTransmission(deviceAddress);
+  wire.write(0x09);
+  wire.endTransmission(false);
+  wire.requestFrom(deviceAddress, 3);
+
+  if (wire.available() == 3) {
+    long dat = wire.read() << 16 | wire.read() << 8 | wire.read();
+    if (dat & 0x800000) dat -= 16777216;
+    float fadc = dat;
+    return 25.0 + fadc / 65536.0;
+  }
+  return NAN; // Gibt Not-a-Number zurück, wenn keine Daten verfügbar sind
 }
