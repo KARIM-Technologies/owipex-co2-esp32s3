@@ -32,24 +32,27 @@ TwoWire Sensor2Wire = TwoWire(1);
 
 //Auswahl Netzwerk
 //Zuhause SAK
-constexpr char WIFI_SSID[] = "FamMorbius";
-constexpr char WIFI_PASSWORD[] = "45927194145938492747";
-
-//Holzruetti
-//constexpr char WIFI_SSID[] = "WB-NET_924_Werkstatt";
-//constexpr char WIFI_PASSWORD[] = "OWiP3X12";
-
-//Aktiv
-//constexpr char WIFI_SSID[] = "WB-NET_924_0021"; //WICHTIG àNDERN
-//constexpr char WIFI_PASSWORD[] = "OWiP3X12";
+//constexpr char WIFI_SSID[] = "FamMorbius";
+//constexpr char WIFI_PASSWORD[] = "45927194145938492747";
 
 
+/*Holzruetti Test Stand
+constexpr char WIFI_SSID[] = "WB-NET_924_Werkstatt";
+constexpr char WIFI_PASSWORD[] = "OWiP3X12";
+constexpr char THINGSBOARD_SERVER[] = "192.168.100.100";
+constexpr char TOKEN[] = "WbXcO29240001";  //WICHTIG àNDERN
+constexpr uint16_t THINGSBOARD_PORT = 1883U;                                                                                                              
+constexpr uint32_t MAX_MESSAGE_SIZE = 1024U;
+*/
 
+//Aktiv System
+constexpr char WIFI_SSID[] = "WB-NET_924_0021"; //WICHTIG àNDERN
+constexpr char WIFI_PASSWORD[] = "OWiP3X12";
 constexpr char THINGSBOARD_SERVER[] = "192.168.100.100";
 constexpr char TOKEN[] = "WbXcO29240021";  //WICHTIG àNDERN
 constexpr uint16_t THINGSBOARD_PORT = 1883U;                                                                                                              
 constexpr uint32_t MAX_MESSAGE_SIZE = 1024U;
-
+//
 
 
 // Setzen Sie Ihre statischen IP-Adresse Informationen hier
